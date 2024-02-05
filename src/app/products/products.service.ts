@@ -3,7 +3,7 @@ import { Injectable } from '@angular/core';
 import { EMPTY, Observable, of, throwError } from 'rxjs';
 import { map } from 'rxjs/operators';
 
-import { Product } from './product.interface';
+import { Product, ProductsResponse } from './product.interface';
 
 import { ApiService } from '../core/api.service';
 
@@ -64,7 +64,9 @@ export class ProductsService extends ApiService {
     }
 
     const url = this.getUrl('bff', 'products');
-    return this.http.get<Product[]>(url);
+    return this.http
+      .get<ProductsResponse>(url)
+      .pipe(map((resp) => resp.products));
   }
 
   getProductsForCheckout(ids: string[]): Observable<Product[]> {
