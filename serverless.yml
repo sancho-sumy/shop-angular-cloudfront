@@ -1,0 +1,115 @@
+service: shop-angular-cloudfront
+
+frameworkVersion: "3"
+
+provider:
+  name: aws
+  runtime: nodejs18.x
+  region: eu-central-1
+
+plugins:
+  - serverless-finch
+  - serverless-single-page-app-plugin
+
+custom:
+  client:
+    bucketName: shop-angular-cloudfront-serverless
+    distributionFolder: dist/app
+    indexDocument: index.html
+    manageResources: false
+  s3LocalPath: ${self:custom.client.distributionFolder}/
+  s3BucketName: ${self:custom.client.bucketName}
+
+resources:
+  Resources:
+    WebAppS3Bucket:
+      Type: AWS::S3::Bucket
+      Properties:
+        BucketName: ${self:custom.s3BucketName}
+        PublicAccessBlockConfiguration:
+          BlockPublicAcls: true
+          BlockPublicPolicy: true
+          IgnorePublicAcls: true
+          RestrictPublicBuckets: true
+
+    WebAppS3BucketPolicy:
+      Type: AWS::S3::BucketPolicy
+      Properties:
+        Bucket:
+          Ref: WebAppS3Bucket
+        PolicyDocument:
+          Statement:
+            - Sid: "AllowCloudFrontServicePrincipal"
+              Effect: Allow
+              Action:
+                - s3:GetObject
+              Resource: arn:aws:s3:::${self:custom.s3BucketName}/*
+              Principal:
+                Service: "cloudfront.amazonaws.com"
+              Condition:
+                StringEquals:
+                  AWS:SourceArn:
+                    Fn::Sub:
+                      - "arn:aws:cloudfront::${AWS::AccountId}:distribution/${DistributionId}"
+                      - DistributionId: !Ref WebAppCloudFrontDistribution
+
+    CloudFrontOriginAccessControl:
+      Type: AWS::CloudFront::OriginAccessControl
+      Properties:
+        OriginAccessControlConfig:
+          Description: "origin access control(OAC) for allowing cloudfront to access S3 bucket"
+          Name: ${self:custom.s3BucketName}-OAC
+          OriginAccessControlOriginType: s3
+          SigningBehavior: always
+          SigningProtocol: sigv4
+
+    WebAppCloudFrontDistribution:
+      Type: AWS::CloudFront::Distribution
+      DependsOn:
+        - "WebAppS3Bucket"
+        - "CloudFrontOriginAccessControl"
+      Properties:
+        DistributionConfig:
+          Origins:
+            - DomainName: ${self:custom.s3BucketName}.s3.amazonaws.com
+              Id: myS3Origin
+              OriginAccessControlId: !GetAtt CloudFrontOriginAccessControl.Id
+              S3OriginConfig:
+                OriginAccessIdentity: ""
+          Enabled: true
+          IPV6Enabled: false
+          HttpVersion: http2
+          DefaultRootObject: index.html
+          CustomErrorResponses:
+            - ErrorCode: 404
+              ResponseCode: 200
+              ResponsePagePath: /index.html
+          DefaultCacheBehavior:
+            AllowedMethods: ["GET", "HEAD", "OPTIONS"]
+            CachedMethods: ["GET", "HEAD", "OPTIONS"]
+            ForwardedValues:
+              Headers:
+                - Access-Control-Request-Headers
+                - Access-Control-Request-Method
+                - Origin
+                - Authorization
+              QueryString: false
+              Cookies:
+                Forward: none
+            TargetOriginId: myS3Origin
+            ViewerProtocolPolicy: redirect-to-https
+            Compress: true
+            DefaultTTL: 0
+          ViewerCertificate:
+            CloudFrontDefaultCertificate: true
+
+  Outputs:
+    WebAppS3BucketOutput:
+      Value:
+        "Ref": WebAppS3Bucket
+    OriginAccessControl:
+      Value:
+        "Ref": CloudFrontOriginAccessControl
+    WebAppCloudFrontDistributionOutput:
+      Value:
+        "Fn::GetAtt": [WebAppCloudFrontDistribution, DomainName]
